@@ -268,7 +268,8 @@ export default function MacApiKeyManager() {
       <main className="max-w-5xl mx-auto p-6 sm:p-10">
         <div className="mb-8 flex items-center justify-between text-sm text-gray-500 px-1">
           <p>管理 {keys.length} 个 API 密钥 {isLoadingData && '(加载中...)'}</p>
-          <p>{new Date().toLocaleDateString()}</p>
+          {/* 移除时间显示，或者等待客户端加载后再显示 */}
+            <p>API Key Manager</p>
         </div>
 
         {isLoadingData && keys.length === 0 ? (
