@@ -25,7 +25,7 @@ type ApiKeyData = {
   key: string;
   remarks: string; 
   expiresAt: number | null;
-  status: 'unknown' | 'valid' | 'invalid'; // invalid 代表不可用
+  status: 'unknown' | 'valid' | 'invalid'; 
   latency?: number; 
   lastChecked: string;
 };
@@ -80,7 +80,7 @@ export default function MacApiKeyManager() {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set()); 
 
-  // --- 批量选择状态 (新增) ---
+  // --- 批量选择状态 ---
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   const [filterProvider, setFilterProvider] = useState<string>('all');
@@ -163,7 +163,7 @@ export default function MacApiKeyManager() {
     return res;
   }, [keys, filterProvider, filterStatus, providers]);
 
-  // --- Batch Actions (新增批量逻辑) ---
+  // --- Batch Actions ---
   const handleSelectAll = () => {
     if (selectedKeys.size === filteredKeys.length && filteredKeys.length > 0) {
       setSelectedKeys(new Set());
@@ -193,7 +193,7 @@ export default function MacApiKeyManager() {
     await saveData('mac_api_keys', updated);
   };
 
-  // --- Single Key Actions ---
+  // --- Key Actions ---
   const handleSaveKey = async () => {
     if (!keyForm.name || !keyForm.key) return alert("Name & Key Required");
     let finalExpiresAt: number | null = null;
@@ -274,6 +274,30 @@ export default function MacApiKeyManager() {
     setExpandedProviders(newSet);
   };
 
+  // --- Provider Actions (之前遗漏的部分) ---
+  const handleSaveProvider = async () => {
+    if (!providerForm.name || !providerForm.baseUrl) return alert("Name & Base URL Required");
+    
+    const newData = { 
+      name: providerForm.name, 
+      baseUrl: providerForm.baseUrl, 
+      dashboardUrl: providerForm.dashboardUrl, 
+      description: providerForm.description, 
+      color: providerForm.color 
+    };
+
+    let updated = [];
+    if (editingProvider) {
+      updated = providers.map(p => p.id === editingProvider.id ? { ...p, ...newData } : p);
+    } else {
+      updated = [...providers, { id: Date.now().toString(), ...newData }];
+    }
+    
+    setProviders(updated);
+    await saveData('mac_providers', updated);
+    setShowProviderModal(false);
+  };
+
   // --- Styles ---
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -328,7 +352,7 @@ export default function MacApiKeyManager() {
         
         {/* === Tab: API Keys === */}
         {activeTab === 'keys' && (
-          <div className="max-w-5xl mx-auto space-y-6 pb-20"> {/* Added pb-20 for floating bar */}
+          <div className="max-w-5xl mx-auto space-y-6 pb-20"> 
             <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">API Keys</h1>
@@ -378,7 +402,7 @@ export default function MacApiKeyManager() {
                 return (
                   <div key={key.id} className={cn(
                       "bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all hover:shadow-md group relative",
-                      isInvalid && "opacity-60 bg-gray-50 grayscale-[0.3]" // 不可用时的视觉降级
+                      isInvalid && "opacity-60 bg-gray-50 grayscale-[0.3]" 
                     )}>
                     {/* Collapsed Header */}
                     <div className="flex items-center justify-between p-4 cursor-pointer select-none hover:bg-gray-50/80 transition-colors" onClick={() => toggleKeyExpand(key.id)}>
@@ -479,7 +503,7 @@ export default function MacApiKeyManager() {
           </div>
         )}
 
-        {/* === Floating Batch Action Bar (悬浮批量操作栏) === */}
+        {/* === Floating Batch Action Bar === */}
         {selectedKeys.size > 0 && activeTab === 'keys' && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-900/90 backdrop-blur-md text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 animate-in slide-in-from-bottom-4 z-50 border border-white/10">
             <div className="text-sm font-medium flex items-center gap-2 pr-4 border-r border-white/20">
