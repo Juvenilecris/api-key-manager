@@ -1,284 +1,295 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Trash2, Plus, CheckCircle, XCircle, Eye, EyeOff, Activity, Lock } from 'lucide-react';
+import { Trash2, Plus, Activity, Key, Server, FileText, X, Loader2, Settings2, Search } from 'lucide-react';
+// 引入配置文件
+import { PROVIDERS } from './config/providers';
 
-// 类型定义
+// --- 类型定义 ---
 type ApiKeyData = {
   id: string;
   name: string;
-  provider: 'openai' | 'gemini' | 'deepseek' | 'aliyun';
+  provider: string;
+  baseUrl: string;
   key: string;
+  remarks: string;
   status: 'unknown' | 'valid' | 'invalid';
+  latency?: number;
   lastChecked: string;
 };
 
-export default function ApiKeyManager() {
-  // --- 状态管理 ---
+export default function MacApiKeyManager() {
+  // --- State ---
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  
   const [keys, setKeys] = useState<ApiKeyData[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
-  
-  // 新增 Key 的表单状态
-  const [newKeyForm, setNewKeyForm] = useState({ name: '', provider: 'openai', key: '' });
   const [checkingId, setCheckingId] = useState<string | null>(null);
 
-  // --- 初始化 ---
-  useEffect(() => {
-    // 检查本地登录状态（简单演示用 sessionStorage）
-    const session = sessionStorage.getItem('auth_token');
-    if (session === 'nnwang-token-1006') setIsLoggedIn(true);
+  // 表单默认值
+  const [form, setForm] = useState({
+    name: '',
+    provider: 'openai',
+    baseUrl: PROVIDERS['openai'].defaultUrl, // 使用配置文件的默认值
+    key: '',
+    remarks: ''
+  });
 
-    // 加载保存的 Keys
-    const savedKeys = localStorage.getItem('my_api_keys');
+  // --- Effects ---
+  useEffect(() => {
+    const session = sessionStorage.getItem('mac_auth_token');
+    if (session === 'nnwang-1006-session') setIsLoggedIn(true);
+
+    const savedKeys = localStorage.getItem('mac_api_keys');
     if (savedKeys) setKeys(JSON.parse(savedKeys));
   }, []);
 
-  // --- 登录逻辑 ---
+  // --- Handlers ---
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    // 这里使用硬编码校验，实际生产建议使用 Server Action + Environment Variables
-    if (username === 'nnwang' && password === '1006') {
-      sessionStorage.setItem('auth_token', 'nnwang-token-1006');
+    if (loginForm.username === 'nnwang' && loginForm.password === '1006') {
+      sessionStorage.setItem('mac_auth_token', 'nnwang-1006-session');
       setIsLoggedIn(true);
     } else {
-      alert('账号或密码错误');
+      alert('Access Denied');
     }
   };
 
-  // --- Key 管理逻辑 ---
-  const addKey = () => {
-    if (!newKeyForm.name || !newKeyForm.key) return;
+  // 当下拉菜单改变时，从配置文件读取默认 URL
+  const handleProviderChange = (providerKey: string) => {
+    const config = PROVIDERS[providerKey];
+    setForm({
+      ...form,
+      provider: providerKey,
+      baseUrl: config ? config.defaultUrl : ''
+    });
+  };
+
+  const saveKey = () => {
+    if (!form.name || !form.key) return alert("名称和 API Key 必填");
+
     const newKey: ApiKeyData = {
       id: Date.now().toString(),
-      name: newKeyForm.name,
-      provider: newKeyForm.provider as any,
-      key: newKeyForm.key,
+      name: form.name,
+      provider: form.provider,
+      baseUrl: form.baseUrl,
+      key: form.key,
+      remarks: form.remarks,
       status: 'unknown',
       lastChecked: '-'
     };
-    const updatedKeys = [...keys, newKey];
-    setKeys(updatedKeys);
-    localStorage.setItem('my_api_keys', JSON.stringify(updatedKeys));
+
+    const updated = [newKey, ...keys];
+    setKeys(updated);
+    localStorage.setItem('mac_api_keys', JSON.stringify(updated));
     setShowAddModal(false);
-    setNewKeyForm({ name: '', provider: 'openai', key: '' });
+    // 重置表单
+    setForm({ name: '', provider: 'openai', baseUrl: PROVIDERS['openai'].defaultUrl, key: '', remarks: '' });
   };
 
   const deleteKey = (id: string) => {
-    const updatedKeys = keys.filter(k => k.id !== id);
-    setKeys(updatedKeys);
-    localStorage.setItem('my_api_keys', JSON.stringify(updatedKeys));
+    if(!confirm('确定要删除这个 Key 吗？')) return;
+    const updated = keys.filter(k => k.id !== id);
+    setKeys(updated);
+    localStorage.setItem('mac_api_keys', JSON.stringify(updated));
   };
 
-  // --- 测试 Key 逻辑 ---
   const checkKey = async (id: string) => {
     setCheckingId(id);
-    const targetKey = keys.find(k => k.id === id);
-    if (!targetKey) return;
+    const target = keys.find(k => k.id === id);
+    if (!target) return;
 
+    const startTime = Date.now();
     try {
       const res = await fetch('/api/check', {
         method: 'POST',
-        body: JSON.stringify({ provider: targetKey.provider, apiKey: targetKey.key }),
+        body: JSON.stringify({ 
+          provider: target.provider, 
+          apiKey: target.key,
+          baseUrl: target.baseUrl
+        }),
       });
       const data = await res.json();
+      const endTime = Date.now();
 
-      const updatedKeys = keys.map(k => {
+      const updated = keys.map(k => {
         if (k.id === id) {
           return {
             ...k,
             status: data.success ? 'valid' : 'invalid',
-            lastChecked: new Date().toLocaleString()
+            latency: endTime - startTime,
+            lastChecked: new Date().toLocaleString('zh-CN', { hour12: false })
           } as ApiKeyData;
         }
         return k;
       });
-      setKeys(updatedKeys);
-      localStorage.setItem('my_api_keys', JSON.stringify(updatedKeys));
+      setKeys(updated);
+      localStorage.setItem('mac_api_keys', JSON.stringify(updated));
     } catch (e) {
-      alert('测试请求失败');
+      alert('检测请求失败');
     } finally {
       setCheckingId(null);
     }
   };
 
-  // --- 渲染登录页 ---
+  // 辅助函数：获取显示的标签样式
+  const getProviderStyle = (providerKey: string) => {
+    const config = PROVIDERS[providerKey];
+    return config ? config.colorClass : 'bg-gray-50 text-gray-600 border-gray-100';
+  };
+
+  const getProviderName = (providerKey: string) => {
+    const config = PROVIDERS[providerKey];
+    return config ? config.name : 'Unknown';
+  };
+
+  // --- Render ---
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="bg-white p-8 rounded-2xl shadow-xl w-96 border border-gray-100">
-          <div className="flex justify-center mb-6 text-indigo-600">
-            <Lock size={48} />
-          </div>
-          <h2 className="text-2xl font-bold text-center mb-6 text-gray-800">管理员登录</h2>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">用户名</label>
-              <input 
-                type="text" 
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition"
-                placeholder="请输入用户名"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">密码</label>
-              <input 
-                type="password" 
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition"
-                placeholder="请输入密码"
-              />
-            </div>
-            <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition font-medium">
-              进入系统
-            </button>
+      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#dcdcdc] bg-[url('https://images.unsplash.com/photo-1621193677216-5950d8196c50?q=80&w=2560&auto=format&fit=crop')] bg-cover bg-center font-sans text-white">
+        <div className="backdrop-blur-xl bg-black/20 p-8 rounded-[32px] shadow-2xl border border-white/10 w-[360px] flex flex-col items-center animate-in fade-in zoom-in duration-500">
+          <div className="w-24 h-24 bg-gray-200 rounded-full mb-6 shadow-inner flex items-center justify-center text-4xl">👨🏻‍💻</div>
+          <h2 className="text-xl font-semibold mb-6 text-white tracking-wide">nnwang</h2>
+          <form onSubmit={handleLogin} className="w-full space-y-4">
+            <input type="text" placeholder="Username" className="w-full bg-white/20 border border-white/10 rounded-xl px-4 py-2.5 placeholder-white/50 text-white outline-none focus:bg-white/30 transition text-center" value={loginForm.username} onChange={e => setLoginForm({...loginForm, username: e.target.value})} />
+            <input type="password" placeholder="Password" className="w-full bg-white/20 border border-white/10 rounded-xl px-4 py-2.5 placeholder-white/50 text-white outline-none focus:bg-white/30 transition text-center" value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} />
+            <button type="submit" className="hidden">Login</button>
           </form>
         </div>
       </div>
     );
   }
 
-  // --- 渲染主界面 ---
   return (
-    <div className="min-h-screen bg-gray-50 p-6 sm:p-12 font-sans">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <header className="flex justify-between items-center mb-10">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-              <Activity className="text-indigo-600" /> API Key Manager
-            </h1>
-            <p className="text-gray-500 mt-1">安全管理并监测你的大模型密钥状态</p>
+    <div className="min-h-screen bg-[#f5f5f7] text-[#1d1d1f] font-sans">
+      <nav className="sticky top-0 z-30 bg-white/70 backdrop-blur-md border-b border-gray-200/50 px-6 py-4 flex justify-between items-center">
+        <div className="flex items-center gap-3">
+          <div className="flex gap-2 mr-4">
+            <div className="w-3 h-3 rounded-full bg-[#ff5f57] border border-[#e0443e]"></div>
+            <div className="w-3 h-3 rounded-full bg-[#febc2e] border border-[#d89e24]"></div>
+            <div className="w-3 h-3 rounded-full bg-[#28c840] border border-[#1aab29]"></div>
           </div>
-          <button 
-            onClick={() => setShowAddModal(true)}
-            className="bg-black text-white px-5 py-2.5 rounded-full flex items-center gap-2 hover:bg-gray-800 transition shadow-lg hover:shadow-xl"
-          >
-            <Plus size={18} /> 新增 Key
-          </button>
-        </header>
+          <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2 text-gray-800">
+            <Server size={18} className="text-gray-500" /> KeyGuard <span className="text-gray-400 font-normal text-sm bg-gray-100 px-2 py-0.5 rounded-md border border-gray-200">Configurable</span>
+          </h1>
+        </div>
+        <button onClick={() => setShowAddModal(true)} className="bg-[#007aff] hover:bg-[#0062cc] text-white px-4 py-1.5 rounded-lg text-sm font-medium shadow-sm transition-all active:scale-95 flex items-center gap-1.5">
+          <Plus size={16} /> Add Key
+        </button>
+      </nav>
 
-        {/* Key 列表 */}
-        <div className="grid gap-4">
-          {keys.length === 0 && (
-            <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-gray-300 text-gray-400">
-              暂无数据，请点击右上角添加
-            </div>
-          )}
-          
+      <main className="max-w-5xl mx-auto p-6 sm:p-10">
+        <div className="mb-8 flex items-center justify-between text-sm text-gray-500 px-1">
+          <p>共管理 {keys.length} 个 API 密钥</p>
+          <p>{new Date().toLocaleDateString()}</p>
+        </div>
+
+        <div className="grid gap-5">
           {keys.map((item) => (
-            <div key={item.id} className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-4 w-full sm:w-auto">
-                <div className={`p-3 rounded-lg ${
-                  item.provider === 'openai' ? 'bg-green-100 text-green-700' : 
-                  item.provider === 'gemini' ? 'bg-blue-100 text-blue-700' : 
-                  item.provider === 'aliyun' ? 'bg-orange-100 text-orange-700' : 
-                  'bg-purple-100 text-purple-700'
-                }`}>
-                  <span className="font-bold text-xs uppercase">{item.provider}</span>
-                </div>
-                <div>
-                  <h3 className="font-bold text-gray-800">{item.name}</h3>
-                  <div className="text-gray-400 text-sm flex items-center gap-2 font-mono mt-1">
-                    {item.key.substring(0, 8)}...{item.key.substring(item.key.length - 4)}
+            <div key={item.id} className="group bg-white p-6 rounded-[20px] border border-gray-100 shadow-[0_2px_12px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-300 relative overflow-hidden">
+              <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${item.status === 'valid' ? 'bg-[#34c759]' : item.status === 'invalid' ? 'bg-[#ff3b30]' : 'bg-gray-200'}`}></div>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pl-2">
+                <div className="flex-1 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-lg font-semibold text-gray-900 tracking-tight">{item.name}</h3>
+                    {/* 使用配置文件中的样式 */}
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${getProviderStyle(item.provider)}`}>
+                      {getProviderName(item.provider)}
+                    </span>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 text-sm text-gray-500">
+                    <div className="flex items-center gap-2 font-mono bg-gray-50 px-2 py-1 rounded border border-gray-100 w-fit">
+                      <Key size={12} className="text-gray-400" />
+                      <span className="tracking-widest">{item.key.slice(0, 4)}••••••••{item.key.slice(-4)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 truncate max-w-[250px]" title={item.baseUrl}>
+                      <Settings2 size={12} className="text-gray-400" />
+                      <span className="truncate">{item.baseUrl || 'Default URL'}</span>
+                    </div>
+                    {item.remarks && (
+                      <div className="flex items-center gap-2 col-span-full text-gray-400 italic">
+                        <FileText size={12} />
+                        <span>{item.remarks}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-6 w-full sm:w-auto justify-between sm:justify-end">
-                <div className="text-right">
-                  <div className={`text-sm font-medium flex items-center gap-1 ${
-                    item.status === 'valid' ? 'text-green-600' : 
-                    item.status === 'invalid' ? 'text-red-500' : 'text-gray-400'
-                  }`}>
-                    {item.status === 'valid' && <CheckCircle size={14} />}
-                    {item.status === 'invalid' && <XCircle size={14} />}
-                    {item.status === 'unknown' ? '未检测' : (item.status === 'valid' ? '正常' : '无效')}
+                <div className="flex items-center gap-4 md:border-l md:pl-6 border-gray-100">
+                  <div className="text-right hidden sm:block min-w-[80px]">
+                    <div className={`text-sm font-medium flex items-center justify-end gap-1.5 ${item.status === 'valid' ? 'text-[#34c759]' : item.status === 'invalid' ? 'text-[#ff3b30]' : 'text-gray-400'}`}>
+                       {item.status === 'valid' ? 'Available' : item.status === 'invalid' ? 'Failed' : 'Unknown'}
+                    </div>
+                    <div className="text-[11px] text-gray-400 font-mono mt-1">{item.latency ? `${item.latency}ms` : ''}</div>
                   </div>
-                  <div className="text-xs text-gray-400 mt-0.5">上次检查: {item.lastChecked}</div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={() => checkKey(item.id)}
-                    disabled={checkingId === item.id}
-                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-lg transition disabled:opacity-50"
-                  >
-                    {checkingId === item.id ? '检测中...' : '检测'}
-                  </button>
-                  <button 
-                    onClick={() => deleteKey(item.id)}
-                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  <div className="flex gap-2">
+                    <button onClick={() => checkKey(item.id)} disabled={checkingId === item.id} className="h-9 px-4 bg-white border border-gray-200 hover:border-gray-300 text-gray-700 text-sm font-medium rounded-lg shadow-sm hover:shadow transition-all disabled:opacity-50 flex items-center gap-2">
+                      {checkingId === item.id ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />} Check
+                    </button>
+                    <button onClick={() => deleteKey(item.id)} className="h-9 w-9 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           ))}
+          {keys.length === 0 && (
+             <div className="flex flex-col items-center justify-center py-20 text-gray-400 bg-white rounded-[20px] border border-dashed border-gray-200">
+                <Search size={48} className="mb-4 opacity-20" />
+                <p>No keys found. Add one to get started.</p>
+             </div>
+          )}
         </div>
+      </main>
 
-        {/* 新增 Modal */}
-        {showAddModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm z-50">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
-              <h3 className="text-xl font-bold mb-4">添加新的 API Key</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">备注名称</label>
-                  <input 
-                    className="w-full border px-3 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                    placeholder="例如：我的 GPT-4 Key"
-                    value={newKeyForm.name}
-                    onChange={e => setNewKeyForm({...newKeyForm, name: e.target.value})}
-                  />
+      {/* Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowAddModal(false)}></div>
+          <div className="bg-white/90 backdrop-blur-xl w-full max-w-lg rounded-2xl shadow-2xl border border-white/20 relative z-10 animate-in zoom-in-95 duration-200 p-0 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200/50 flex justify-between items-center bg-gray-50/50">
+              <h3 className="text-sm font-semibold text-gray-900">Add New API Key</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+            </div>
+            <div className="p-6 space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-500 ml-1">Name <span className="text-red-500">*</span></label>
+                  <input className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all" placeholder="e.g. My Plato Key" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">供应商</label>
-                  <select 
-                    className="w-full border px-3 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                    value={newKeyForm.provider}
-                    onChange={e => setNewKeyForm({...newKeyForm, provider: e.target.value})}
-                  >
-                    <option value="openai">OpenAI</option>
-                    <option value="gemini">Google Gemini</option>
-                    <option value="deepseek">DeepSeek (深度求索)</option>
-                    <option value="aliyun">阿里百炼 (DashScope)</option>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-500 ml-1">Provider</label>
+                  {/* 这里的 options 现在从配置文件动态生成 */}
+                  <select className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 transition-all appearance-none" value={form.provider} onChange={e => handleProviderChange(e.target.value)}>
+                    {Object.entries(PROVIDERS).map(([key, val]) => (
+                      <option key={key} value={key}>{val.name}</option>
+                    ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
-                  <input 
-                    className="w-full border px-3 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-sm"
-                    placeholder="sk-..."
-                    value={newKeyForm.key}
-                    onChange={e => setNewKeyForm({...newKeyForm, key: e.target.value})}
-                  />
-                </div>
               </div>
-              <div className="flex justify-end gap-3 mt-6">
-                <button 
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition"
-                >
-                  取消
-                </button>
-                <button 
-                  onClick={addKey}
-                  className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition"
-                >
-                  保存
-                </button>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-gray-500 ml-1 flex justify-between">Base URL <span className="text-[10px] text-gray-400 font-normal">Auto-filled from provider</span></label>
+                <input className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono text-gray-600 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all" value={form.baseUrl} onChange={e => setForm({...form, baseUrl: e.target.value})} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-gray-500 ml-1">API Key <span className="text-red-500">*</span></label>
+                <textarea rows={2} className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none" placeholder="sk-..." value={form.key} onChange={e => setForm({...form, key: e.target.value})} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-gray-500 ml-1">Remarks</label>
+                <input className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all" placeholder="备注..." value={form.remarks} onChange={e => setForm({...form, remarks: e.target.value})} />
               </div>
             </div>
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+              <button onClick={() => setShowAddModal(false)} className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-200/50 rounded-lg transition-colors">Cancel</button>
+              <button onClick={saveKey} className="px-6 py-2 text-sm font-medium text-white bg-[#007aff] hover:bg-[#0062cc] rounded-lg shadow-sm transition-colors">Save Key</button>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
