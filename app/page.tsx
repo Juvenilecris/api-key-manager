@@ -7,7 +7,6 @@ import {
 } from 'lucide-react';
 import { PROVIDERS } from './config/providers';
 
-// --- 类型定义 ---
 type ApiKeyData = {
   id: string;
   name: string;
@@ -21,7 +20,6 @@ type ApiKeyData = {
   lastChecked: string;
 };
 
-// --- 子组件 ---
 const CopyButton = ({ text, label }: { text: string, label?: string }) => {
   const [copied, setCopied] = useState(false);
   const handleCopy = (e: React.MouseEvent) => {
@@ -39,13 +37,14 @@ const CopyButton = ({ text, label }: { text: string, label?: string }) => {
 };
 
 export default function MacApiKeyManager() {
-  // --- State ---
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   
   const [keys, setKeys] = useState<ApiKeyData[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // --- 修复点1: 新增日期状态 ---
+  const [currentDate, setCurrentDate] = useState(''); 
 
   const [showModal, setShowModal] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
@@ -56,31 +55,27 @@ export default function MacApiKeyManager() {
     expireType: 'never' as 'never' | 'date' | 'duration', expireDate: '', duration: { years: 0, months: 0, days: 0 }
   });
 
-  // --- 关键修复：加固后的获取数据函数 ---
   const fetchKeysFromCloud = async () => {
     setIsLoadingData(true);
     try {
       const res = await fetch('/api/storage', {
         method: 'GET',
-        headers: { 
-          'x-auth-token': '1006',
-          'Cache-Control': 'no-cache' 
-        } 
+        headers: { 'x-auth-token': '1006', 'Cache-Control': 'no-cache' } 
       });
 
       if (res.ok) {
         const data = await res.json();
-        // 只有当 data 确实是数组时才更新状态，否则重置为空数组
         if (Array.isArray(data)) {
           setKeys(data);
         } else {
-          console.warn("Invalid data format received, resetting keys.");
+          console.warn("Invalid data format, resetting.");
           setKeys([]);
         }
+      } else {
+        console.error("API 404 or Error:", res.status);
       }
     } catch (error) {
       console.error("Failed to load keys", error);
-      setKeys([]); // 出错也重置为空，防止页面崩溃
     } finally {
       setIsLoadingData(false);
     }
@@ -88,7 +83,7 @@ export default function MacApiKeyManager() {
 
   const saveKeysToCloud = async (newKeys: ApiKeyData[]) => {
     setIsSaving(true);
-    setKeys(newKeys); // 乐观更新
+    setKeys(newKeys);
     try {
       await fetch('/api/storage', {
         method: 'POST',
@@ -96,27 +91,30 @@ export default function MacApiKeyManager() {
         body: JSON.stringify(newKeys)
       });
     } catch (error) {
-      alert('同步到云端失败');
+      alert('同步失败');
     } finally {
       setIsSaving(false);
     }
   };
 
-  // --- Effects ---
   useEffect(() => {
+    // --- 修复点2: 仅在客户端渲染日期，彻底解决 removeChild 报错 ---
+    setCurrentDate(new Date().toLocaleDateString());
+
     const session = sessionStorage.getItem('mac_auth_token');
     if (session === 'nnwang-1006-session') {
       setIsLoggedIn(true);
       fetchKeysFromCloud();
     }
-  }, [isLoggedIn]);
+  }, []); // 空依赖数组，确保只在加载时执行一次
 
-  // --- Handlers ---
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (loginForm.username === 'nnwang' && loginForm.password === '1006') {
       sessionStorage.setItem('mac_auth_token', 'nnwang-1006-session');
       setIsLoggedIn(true);
+      // 登录后立即拉取数据
+      setTimeout(fetchKeysFromCloud, 100); 
     } else {
       alert('Access Denied');
     }
@@ -153,7 +151,6 @@ export default function MacApiKeyManager() {
 
   const saveKey = async () => {
     if (!form.name || !form.key) return alert("名称和 API Key 必填");
-
     let finalExpiresAt: number | null = null;
     if (form.expireType === 'date' && form.expireDate) {
       finalExpiresAt = new Date(form.expireDate).getTime();
@@ -164,11 +161,9 @@ export default function MacApiKeyManager() {
       now.setDate(now.getDate() + Number(form.duration.days || 0));
       finalExpiresAt = now.getTime();
     }
-
     const commonData = {
       name: form.name, provider: form.provider, baseUrl: form.baseUrl, key: form.key, remarks: form.remarks, expiresAt: finalExpiresAt
     };
-
     let updatedKeys: ApiKeyData[];
     if (editingId) {
       updatedKeys = keys.map(k => k.id === editingId ? { ...k, ...commonData, status: (k.key !== form.key ? 'unknown' : k.status) } : k);
@@ -178,7 +173,6 @@ export default function MacApiKeyManager() {
       };
       updatedKeys = [newKey, ...keys];
     }
-
     await saveKeysToCloud(updatedKeys);
     setShowModal(false);
   };
@@ -227,7 +221,6 @@ export default function MacApiKeyManager() {
     return { text: new Date(timestamp).toLocaleDateString(), color: 'text-gray-500', bg: 'bg-gray-50', icon: Calendar };
   };
 
-  // --- Render ---
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#dcdcdc] bg-[url('https://images.unsplash.com/photo-1621193677216-5950d8196c50?q=80&w=2560&auto=format&fit=crop')] bg-cover bg-center font-sans text-white">
@@ -268,8 +261,8 @@ export default function MacApiKeyManager() {
       <main className="max-w-5xl mx-auto p-6 sm:p-10">
         <div className="mb-8 flex items-center justify-between text-sm text-gray-500 px-1">
           <p>管理 {keys.length} 个 API 密钥 {isLoadingData && '(加载中...)'}</p>
-          {/* 移除时间显示，或者等待客户端加载后再显示 */}
-            <p>API Key Manager</p>
+          {/* 修复点3: 显示安全渲染的日期 */}
+          <p>{currentDate}</p>
         </div>
 
         {isLoadingData && keys.length === 0 ? (
@@ -336,7 +329,7 @@ export default function MacApiKeyManager() {
         )}
       </main>
 
-      {/* Modal */}
+      {/* Modal (保持不变，内容太长省略，但代码中已包含) */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowModal(false)}></div>
@@ -358,7 +351,6 @@ export default function MacApiKeyManager() {
                   </select>
                 </div>
               </div>
-              
               <div className="space-y-2 bg-gray-50/80 p-3 rounded-xl border border-gray-100">
                 <label className="text-xs font-medium text-gray-500 ml-1 flex items-center gap-1"><Clock size={12}/> Validity Period</label>
                 <div className="flex bg-gray-200/50 p-1 rounded-lg mb-3">
@@ -390,7 +382,6 @@ export default function MacApiKeyManager() {
                   </div>
                 )}
               </div>
-
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-gray-500 ml-1">Base URL</label>
                 <input className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono text-gray-600 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all" value={form.baseUrl} onChange={e => setForm({...form, baseUrl: e.target.value})} />
