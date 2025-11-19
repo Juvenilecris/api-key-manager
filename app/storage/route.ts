@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     return NextResponse.json(keys);
   } catch (error) {
     console.error("KV Get Error:", error);
-    // 即使出错，也返回空数组防止前端崩溃，而不是返回 500 错误对象
+    // 即使出错，也返回空数组防止前端崩溃
     return NextResponse.json([], { status: 200 }); 
   }
 }
